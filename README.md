@@ -1,2 +1,2 @@
 # Bot Bangers
-Bot dénicheur de tweet banger
+Bot twitter dénicheur de bangers

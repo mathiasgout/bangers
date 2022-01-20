@@ -3,6 +3,7 @@ from typing import Dict
 from .models import DB_NAME, Base, engine
 from .texts import TWEETS_TEXTS
 import datetime as _datetime
+import requests as _request
 import random as _random
 from sqlalchemy import create_engine as _create_engine
 from sqlalchemy.orm import sessionmaker as _sessionmaker
@@ -53,6 +54,15 @@ def _extract_infos_from_tweet(tweet) -> Dict:
     tweet_info["mentions"] = str(mentions)
 
     return tweet_info
+
+def _extract_media_id(tweet) -> int:
+    media_id = tweet.entities["media"][0]["id"]
+    return media_id
+
+def _download_media(url: str, extension: str):
+    r = _request.get(url)
+    with open(f"media.{extension}", "wb") as f:
+        f.write(r.content)
 
 def _generate_db_session():
     engine = _create_engine(f'sqlite:///{DB_NAME}')

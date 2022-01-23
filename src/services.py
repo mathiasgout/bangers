@@ -1,20 +1,26 @@
 import os as _os
-from typing import Dict
+import shutil as _shutil
+from typing import Dict, List
 from .models import DB_NAME, Base, engine
-from .texts import TWEETS_TEXTS
+from .contents import TWEETS_TEXTS, TWEETS_MEDIAS
 import datetime as _datetime
 import requests as _request
+import mimetypes as _mimetypes
+import string as _string
 import random as _random
 from sqlalchemy import create_engine as _create_engine
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 def create_database():
-    DIR_PATH = _os.path.dirname(_os.path.realpath(__file__))
-    if not _os.path.exists(_os.path.join(DIR_PATH,DB_NAME)):
+    SRC_PATH = _os.path.dirname(_os.path.realpath(__file__))
+    if not _os.path.exists(_os.path.join(SRC_PATH,DB_NAME)):
         Base.metadata.create_all(engine)
 
 def _form_tweet_text() -> str:
     return _random.choice(TWEETS_TEXTS)
+
+def _form_tweet_media() -> str:
+    return _random.choice(TWEETS_MEDIAS)
     
 def _extract_infos_from_tweet(tweet) -> Dict:
     """Extrait les informations importantes d'un tweet et les renvoie sous forme d'un dictionnaire
@@ -55,14 +61,61 @@ def _extract_infos_from_tweet(tweet) -> Dict:
 
     return tweet_info
 
-def _extract_media_id(tweet) -> int:
-    media_id = tweet.entities["media"][0]["id"]
-    return media_id
+def _get_media_urls_from_tweet(tweet) -> List[str]:
+    
+    # Si pas de média
+    if not hasattr(tweet, "extended_entities"):
+        return []
 
-def _download_media(url: str, extension: str):
+    urls = []
+    medias = tweet.extended_entities["media"]
+    for media in medias:
+
+        # Si c'est une vidéo
+        if "video_info" in media:
+            variants = media["video_info"]["variants"]
+            bitrate_url = {}
+            for variant in variants:
+                if ("bitrate" in variant) and ("url" in variant):
+                    bitrate_url[variant["bitrate"]] = variant["url"]
+
+            # Garde la vidéo de meilleure qualité
+            if bitrate_url:
+                urls.append(bitrate_url[max(bitrate_url.keys())])
+
+        # Si c'est une photo
+        else:
+            if "media_url_https" in media:
+                urls.append(media["media_url_https"])
+            elif "media_url" in media:
+                urls.append(media["media_url"])
+
+    return urls
+
+def _download_media(url: str, dir_path: str):
     r = _request.get(url)
-    with open(f"media.{extension}", "wb") as f:
+    content_type = r.headers['content-type']
+    extension = _mimetypes.guess_extension(content_type)
+    file_name = ''.join(_random.choice(_string.ascii_letters) for i in range(6)) + extension
+    with open(_os.path.join(dir_path, file_name), "wb") as f:
         f.write(r.content)
+
+def _download_medias(urls: List[str]):
+    SRC_PATH = _os.path.dirname(_os.path.realpath(__file__))
+    MEDIA_PATH = _os.path.join(SRC_PATH, "medias")
+    if not _os.path.exists(MEDIA_PATH):
+        _os.mkdir(MEDIA_PATH)
+    
+    for url in urls:
+        _download_media(url, MEDIA_PATH)
+    
+def _remove_medias_directory():
+    SRC_PATH = _os.path.dirname(_os.path.realpath(__file__))
+    MEDIA_PATH = _os.path.join(SRC_PATH, "medias")
+    try:
+        _shutil.rmtree(MEDIA_PATH)
+    except Exception:
+        print(f"can not remove {MEDIA_PATH} directory")
 
 def _generate_db_session():
     engine = _create_engine(f'sqlite:///{DB_NAME}')

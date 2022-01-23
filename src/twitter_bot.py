@@ -5,7 +5,7 @@ import tweepy as _tweepy
 import sqlalchemy as _sqlalchemy
 from  sqlalchemy.sql.expression import func as _func
 from .models import Tweets
-from .services import _extract_infos_from_tweet, _generate_db_session, _form_tweet_text
+from .services import _extract_infos_from_tweet, _generate_db_session, _form_tweet_text, _form_tweet_media, _download_medias, _get_media_urls_from_tweet, _remove_medias_directory
 
 # Chargement des clefs du fichier .env en variable d'environnements
 _dotenv.load_dotenv()
@@ -29,6 +29,11 @@ def _get_twitter_api() -> _tweepy.API:
     twitter_api = _tweepy.API(auth, wait_on_rate_limit=True)
 
     return twitter_api
+
+def _extract_tweet(tweet_id: int) -> _tweepy.models.Status:
+    twitter_api = _get_twitter_api()
+
+    return twitter_api.get_status(id=tweet_id, tweet_mode="extended")
 
 def _extract_last_tweets(user_id: int, num_pages: int = 1, count: int = 20, since_tweet_id: int = None) -> List[Dict]:
     """Extrait les derniers tweets d'un utilisateur en fonction de son ID.
@@ -64,15 +69,27 @@ def _check_if_tweet_exists(tweet_id: int) -> bool:
 
     return it_exist
 
-def reply_tweet(tweet_selected: Tweets, text: str):
+def _upload_medias() -> List[int]:
     twitter_api = _get_twitter_api()
-    twitter_api.update_status(status=text, in_reply_to_status_id=tweet_selected.tweet_id, auto_populate_reply_metadata=True)
 
-def quote_tweet(tweet_selected: Tweets, text: str):
+    SRC_PATH = _os.path.dirname(_os.path.realpath(__file__))
+    MEDIA_PATH = _os.path.join(SRC_PATH, "medias")
+    media_ids = []
+    for file_name in _os.listdir(MEDIA_PATH):
+        media = twitter_api.media_upload(filename=_os.path.join(MEDIA_PATH, file_name))
+        media_ids.append(media.media_id)
+
+    return media_ids
+
+def reply_tweet(tweet_selected: Tweets, text: str, media_ids: List[int]):
     twitter_api = _get_twitter_api()
-    twitter_api.update_status(status=text, attachment_url=tweet_selected.url)
+    twitter_api.update_status(status=text, in_reply_to_status_id=tweet_selected.tweet_id, auto_populate_reply_metadata=True, media_ids=media_ids)
 
-def retweet_tweet(tweet_selected: Tweets, text: str):
+def quote_tweet(tweet_selected: Tweets, text: str, media_ids: List[int]):
+    twitter_api = _get_twitter_api()
+    twitter_api.update_status(status=text, attachment_url=tweet_selected.url, media_ids=media_ids)
+
+def retweet_tweet(tweet_selected: Tweets, text: str, media_ids: List[int]):
     twitter_api = _get_twitter_api()
     twitter_api.retweet(id=tweet_selected.tweet_id)
 
@@ -107,12 +124,22 @@ def insert_last_tweets_db(user_id: int):
 
 def post_tweet(user_id : int, type_of_tweet_fn: Callable[[Tweets, str], None]):
     session = _generate_db_session()
+    _remove_medias_directory()
     
     success = False
     while not success:
         tweet_selected = session.query(Tweets).filter(Tweets.user_id == user_id, Tweets.used == 0, Tweets.deleted == 0).order_by(_func.random()).first() 
         if _check_if_tweet_exists(tweet_id=tweet_selected.tweet_id):
-            type_of_tweet_fn(text=_form_tweet_text(), tweet_selected=tweet_selected)
+            url_tweet_with_media = _form_tweet_media()
+            tweet_id_with_media = url_tweet_with_media.split("/")[-1]
+            if _check_if_tweet_exists(tweet_id=tweet_id_with_media):
+                _download_medias(urls=_get_media_urls_from_tweet(tweet=_extract_tweet(tweet_id=tweet_id_with_media)))
+                media_ids = _upload_medias()
+            else:
+                print(f"URL media : {url_tweet_with_media} DELETED")
+                media_ids = []
+
+            type_of_tweet_fn(text=_form_tweet_text(), tweet_selected=tweet_selected, media_ids=media_ids)
             tweet_selected.used = 1
             success = True 
         else:

@@ -64,7 +64,7 @@ def _check_if_tweet_exists(tweet_id: int) -> bool:
     it_exist = True
     try:
         twitter_api.get_status(id=tweet_id)
-    except _tweepy.errors.Forbidden:
+    except (_tweepy.errors.Forbidden, _tweepy.errors.NotFound):
         it_exist = False
 
     return it_exist

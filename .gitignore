@@ -1,0 +1,5 @@
+venv
+.vscode
+src/.env
+src/database.ini
+.DS_Store

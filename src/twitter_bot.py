@@ -150,6 +150,25 @@ class TweetPoster(ABC):
 
         return it_exist
 
+    def _extract_tweet_id_from_db_to_interact_with_it(self, user_id: int) -> int:
+        with session_scope(env=self.env) as session:
+            # Get a tweet from user_id to reply to it
+            success = False
+            while not success:
+                tweets = session.query(Tweets).filter(Tweets.user_id == user_id, Tweets.used == 0, Tweets.deleted == 0).order_by(sqlalchemy.desc(Tweets.created_at)).limit(20)
+                tweet = tweets.from_self().order_by(func.random()).first()
+                if tweet:
+                    if self._check_if_tweet_exists(tweet_id=tweet.tweet_id):
+                        tweet.used = 1
+                        tweet_id = tweet.tweet_id
+                        success = True
+                    else:
+                        tweet.deleted = 1  
+                else:
+                    raise Exception(f"No tweet from user {user_id} in database")
+
+        return tweet_id
+
     @abstractmethod
     def post_tweet(self, user_id: int):
         pass
@@ -161,25 +180,12 @@ class QuoteTweet(TweetPoster):
         super().__init__(env=env)
 
     def post_tweet(self, user_id: int):
-        with session_scope(env=self.env) as session:
-            # Get a tweet from user_id to reply to it
-            success = False
-            while not success:
-                tweets = session.query(Tweets).filter(Tweets.user_id == user_id, Tweets.used == 0, Tweets.deleted == 0).order_by(sqlalchemy.desc(Tweets.created_at)).limit(20)
-                tweet = tweets.from_self().order_by(func.random()).first()
-                if tweet:
-                    if self._check_if_tweet_exists(tweet_id=tweet.tweet_id):
-                        tweet.used = 1
-                        success = True
-                    else:
-                        tweet.deleted = 1  
-                else:
-                    raise Exception(f"No tweet from user {user_id} in database")
         
+            tweet_id = self._extract_tweet_id_from_db_to_interact_with_it(user_id=user_id)
             text =self._form_tweet_text()
-            attachment_url = tweet.url
+            attachment_url = f"https://twitter.com/twitter/statuses/{tweet_id}"
             self.twitter_api.update_status(status=text, attachment_url=attachment_url)
-            print(f"TWEET POSTED : type : Quote, text: '{text}', in reply to Tweet ID : {tweet.tweet_id}")
+            print(f"TWEET POSTED : type : Quote, text: '{text}', in reply to Tweet ID : {tweet_id}")
 
 
 class ReplyTweet(TweetPoster):
@@ -188,22 +194,8 @@ class ReplyTweet(TweetPoster):
         super().__init__(env=env)
 
     def post_tweet(self, user_id: int):
-        with session_scope(env=self.env) as session:
-            # Get a tweet from user_id to reply to it
-            success = False
-            while not success:
-                tweets = session.query(Tweets).filter(Tweets.user_id == user_id, Tweets.used == 0, Tweets.deleted == 0).order_by(sqlalchemy.desc(Tweets.created_at)).limit(20)
-                tweet = tweets.from_self().order_by(func.random()).first()
-                if tweet:
-                    if self._check_if_tweet_exists(tweet_id=tweet.tweet_id):
-                        tweet.used = 1
-                        success = True
-                    else:
-                        tweet.deleted = 1  
-                else:
-                    raise Exception(f"No tweet from user {user_id} in database")
-        
+
+            in_reply_to_status_id = self._extract_tweet_id_from_db_to_interact_with_it(user_id=user_id)
             text =self._form_tweet_text()
-            in_reply_to_status_id = tweet.tweet_id
             self.twitter_api.update_status(status=text, in_reply_to_status_id=in_reply_to_status_id, auto_populate_reply_metadata=True)
-            print(f"TWEET POSTED : type : Reply, text: '{text}', in reply to Tweet ID : {tweet.tweet_id}")
+            print(f"TWEET POSTED : type : Reply, text: '{text}', in reply to Tweet ID : {in_reply_to_status_id}")
